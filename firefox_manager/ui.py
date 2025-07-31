@@ -25,14 +25,8 @@ class FirefoxManagerApp(tk.Tk):
         self.language_code = tk.StringVar(value="en-US")
 
         self.create_widgets()
-
-        self.progress = ttk.Progressbar(self, orient="horizontal", mode="determinate", length=400)
-        self.progress.pack(pady=(0, 10))
-        self.progress.pack_forget()  # Hide initially
-
-        self.installed_tree = None
         self.create_installed_builds_section()
-        self.refresh_installed_builds()
+        self.verify_and_clean_installs()  # <--- Automatically verify on startup
 
     def create_widgets(self):
         input_frame = ttk.LabelFrame(self, text="Firefox Build Configuration")
@@ -42,7 +36,8 @@ class FirefoxManagerApp(tk.Tk):
         ttk.Entry(input_frame, textvariable=self.manual_version, width=25).grid(row=0, column=1, padx=5, pady=10)
 
         ttk.Label(input_frame, text="Architecture:").grid(row=0, column=2, padx=(10, 5), pady=10, sticky="e")
-        ttk.Combobox(input_frame, textvariable=self.selected_arch, values=ARCHITECTURES, state="readonly", width=18).grid(row=0, column=3, padx=5, pady=10)
+        ttk.Combobox(input_frame, textvariable=self.selected_arch, values=ARCHITECTURES, state="readonly",
+                     width=18).grid(row=0, column=3, padx=5, pady=10)
 
         ttk.Label(input_frame, text="Language:").grid(row=0, column=4, padx=(10, 5), pady=10, sticky="e")
         ttk.Entry(input_frame, textvariable=self.language_code, width=15).grid(row=0, column=5, padx=(5, 10), pady=10)
@@ -67,15 +62,13 @@ class FirefoxManagerApp(tk.Tk):
 
         try:
             self.title(f"Downloading {version}...")
-            self.update_idletasks()
 
-            self.progress.pack()
+            # Show the progress bar frame below the buttons. The buttons are not touched.
+            self.progress_frame.pack(pady=5, padx=10, fill="x")
             self.progress["value"] = 0
             self.update_idletasks()
 
             zip_path = download_build(version, arch, lang, progress_callback=self.update_progress)
-
-            self.progress.pack_forget()
 
             if zip_path.endswith(".zip"):
                 install_path = get_install_folder(version, arch, lang)
@@ -84,12 +77,14 @@ class FirefoxManagerApp(tk.Tk):
                 add_install_record(version, arch, lang, install_path)
                 messagebox.showinfo("Done", f"Successfully installed to:\n{install_path}")
             else:
-                messagebox.showinfo("Downloaded", f"Build downloaded but not installed (unsupported format).\nSaved to:\n{zip_path}")
+                messagebox.showinfo("Downloaded",
+                                    f"Build downloaded but not installed (unsupported format).\nSaved to:\n{zip_path}")
 
         except Exception as e:
-            self.progress.pack_forget()
             messagebox.showerror("Error", str(e))
         finally:
+            # Hide the progress bar frame, leaving the buttons untouched.
+            self.progress_frame.pack_forget()
             self.title("Firefox Build Manager")
             self.refresh_installed_builds()
 
@@ -113,12 +108,24 @@ class FirefoxManagerApp(tk.Tk):
         scrollbar.pack(side="right", fill="y")
         self.installed_tree.pack(side="left", fill="both", expand=True, padx=(5, 0), pady=5)
 
-        btn_frame = ttk.Frame(self)
-        btn_frame.pack(pady=5, padx=10, fill="x")
+        # --- Button Frame ---
+        self.btn_frame = ttk.Frame(self)
+        self.btn_frame.pack(pady=5, padx=10, fill="x")
 
-        ttk.Button(btn_frame, text="Launch", command=self.launch_selected).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Open Folder", command=self.open_selected_folder).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Remove", command=self.remove_selected).pack(side="right", padx=5)
+        # Left-aligned buttons
+        ttk.Button(self.btn_frame, text="Launch", command=self.launch_selected).pack(side="left", padx=5)
+        ttk.Button(self.btn_frame, text="Open Folder", command=self.open_selected_folder).pack(side="left", padx=5)
+
+        # Right-aligned buttons (packed in reverse order of appearance)
+        ttk.Button(self.btn_frame, text="Remove", command=self.remove_selected).pack(side="right", padx=5)
+        ttk.Button(self.btn_frame, text="Refresh List", command=self.verify_and_clean_installs).pack(side="right",
+                                                                                                     padx=5)
+        # --- Progress Bar Frame (initially hidden) ---
+        # This frame has its own row and will be shown/hidden as needed.
+        self.progress_frame = ttk.Frame(self)
+        self.progress = ttk.Progressbar(self.progress_frame, orient="horizontal", mode="determinate")
+        self.progress.pack(fill="x", expand=True, padx=5, pady=(0, 5))
+
 
     def refresh_installed_builds(self):
         for row in self.installed_tree.get_children():
@@ -126,10 +133,7 @@ class FirefoxManagerApp(tk.Tk):
 
         for entry in load_db():
             install_path = get_install_folder(entry["version"], entry["arch"], entry["language"])
-            if os.path.isdir(install_path):
-                status = "Installed ✔️"
-            else:
-                status = "Pending"
+            status = "Installed ✔️" if os.path.isdir(install_path) else "Missing"
             self.installed_tree.insert("", "end", values=(
                 entry["version"],
                 entry["arch"],
@@ -150,7 +154,18 @@ class FirefoxManagerApp(tk.Tk):
         if not values:
             return
 
-        version, arch, lang, _ = values
+        version, arch, lang, status = values
+        if status == "Missing":
+            messagebox.showinfo(
+                "Auto-Removing Missing Build",
+                "This build's folder is missing. It will be automatically removed from the list."
+            )
+            try:
+                self._remove_entry(version, arch, lang)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to auto-remove the build: {e}")
+            return
+
         install_path = get_install_folder(version, arch, lang)
 
         if "win" in arch:
@@ -161,7 +176,14 @@ class FirefoxManagerApp(tk.Tk):
             firefox_path = os.path.join(install_path, "firefox", "firefox")
 
         if not os.path.isfile(firefox_path):
-            messagebox.showerror("Missing Executable", f"Cannot find the Firefox executable at:\n{firefox_path}")
+            messagebox.showinfo(
+                "Auto-Removing Corrupt Build",
+                "The Firefox executable is missing from the installation folder. This entry will be automatically removed."
+            )
+            try:
+                self._remove_entry(version, arch, lang)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to auto-remove the build: {e}")
             return
 
         subprocess.Popen([firefox_path])
@@ -185,24 +207,57 @@ class FirefoxManagerApp(tk.Tk):
             return
 
         version, arch, lang, _ = values
-        folder = get_install_folder(version, arch, lang)
+        confirm = messagebox.askyesno(
+            "Confirm Deletion",
+            f"Are you sure you want to permanently delete this build?"
+        )
+        if confirm:
+            try:
+                self._remove_entry(version, arch, lang)
+                messagebox.showinfo("Removed", "The build was successfully removed.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to remove the build: {e}")
 
-        confirm = messagebox.askyesno("Confirm Deletion",
-                                      f"Are you sure you want to permanently delete this build?\n\n{folder}")
-        if not confirm:
-            return
+    def verify_and_clean_installs(self):
+        """
+        Checks all DB entries against the filesystem and removes any entries
+        where the installation folder is missing. Shows a message only if something was removed.
+        """
+        db_entries = load_db()
 
-        try:
-            if os.path.isdir(folder):
-                shutil.rmtree(folder)
-
-            db = [e for e in load_db() if not (e["version"] == version and e["arch"] == arch and e["language"] == lang)]
-            save_db(db)
-
+        if not db_entries:
             self.refresh_installed_builds()
-            messagebox.showinfo("Removed", "The build was successfully removed.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to remove the build: {e}")
+            return  # No builds installed, do nothing
+
+        entries_to_keep = []
+        removed_count = 0
+
+        for entry in db_entries:
+            install_path = get_install_folder(entry["version"], entry["arch"], entry["language"])
+            if os.path.isdir(install_path):
+                entries_to_keep.append(entry)
+            else:
+                removed_count += 1
+
+        if removed_count > 0:
+            save_db(entries_to_keep)
+            messagebox.showinfo(
+                "Cleaned Up",
+                f"Removed {removed_count} missing build(s) from the list."
+            )
+
+        self.refresh_installed_builds()
+
+    def _remove_entry(self, version, arch, lang):
+        """Removes a build entry from the DB and its folder from the filesystem."""
+        folder = get_install_folder(version, arch, lang)
+        if os.path.isdir(folder):
+            shutil.rmtree(folder)
+
+        db = [e for e in load_db() if not (e["version"] == version and e["arch"] == arch and e["language"] == lang)]
+        save_db(db)
+
+        self.refresh_installed_builds()
 
 
 if __name__ == "__main__":
