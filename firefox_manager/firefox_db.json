@@ -1,0 +1,16 @@
+[
+  {
+    "version": "128.0b3-candidates",
+    "arch": "win64",
+    "language": "en-US",
+    "install_path": "builds/128.0b3-candidates-win64-en-US",
+    "installed_at": "2025-07-31T14:22:11.123456"
+  },
+  {
+    "version": "140.0b3-candidates",
+    "arch": "win64",
+    "language": "en-US",
+    "install_path": "builds\\140.0b3-candidates-win64-en-US",
+    "installed_at": "2025-07-31T10:23:22.247299"
+  }
+]
