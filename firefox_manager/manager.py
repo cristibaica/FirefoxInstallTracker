@@ -25,6 +25,9 @@ def save_db(entries):
 def add_install_record(version, arch, lang, install_path):
     db = load_db()
 
+    # Remove any existing entry with the same version, arch, and language to avoid duplicates
+    db = [e for e in db if not (e["version"] == version and e["arch"] == arch and e["language"] == lang)]
+
     entry = {
         "version": version,
         "arch": arch,
