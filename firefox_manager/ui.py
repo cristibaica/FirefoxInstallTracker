@@ -26,7 +26,7 @@ class FirefoxManagerApp(tk.Tk):
 
         self.create_widgets()
         self.create_installed_builds_section()
-        self.verify_and_clean_installs()  # <--- Automatically verify on startup
+        self.verify_and_clean_installs(silent=True)  # <--- Verify silently on startup
 
     def create_widgets(self):
         input_frame = ttk.LabelFrame(self, text="Firefox Build Configuration")
@@ -218,16 +218,18 @@ class FirefoxManagerApp(tk.Tk):
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to remove the build: {e}")
 
-    def verify_and_clean_installs(self):
+    def verify_and_clean_installs(self, silent=False):
         """
         Checks all DB entries against the filesystem and removes any entries
-        where the installation folder is missing. Shows a message only if something was removed.
+        where the installation folder is missing.
+        If silent is False, shows a message to the user.
         """
         db_entries = load_db()
 
-        if not db_entries:
+        # No need to show a message if the list is empty and the user didn't click the button
+        if not db_entries and silent:
             self.refresh_installed_builds()
-            return  # No builds installed, do nothing
+            return
 
         entries_to_keep = []
         removed_count = 0
@@ -241,10 +243,14 @@ class FirefoxManagerApp(tk.Tk):
 
         if removed_count > 0:
             save_db(entries_to_keep)
-            messagebox.showinfo(
-                "Cleaned Up",
-                f"Removed {removed_count} missing build(s) from the list."
-            )
+            if not silent:  # Only show the message if not in silent mode
+                messagebox.showinfo(
+                    "Refresh Complete",
+                    f"Removed {removed_count} missing build(s) from the list."
+                )
+        else:
+            if not silent: # Only show a message if the user clicked the button
+                messagebox.showinfo("Refresh Complete", "All build installations are verified.")
 
         self.refresh_installed_builds()
 
