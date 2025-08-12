@@ -38,9 +38,15 @@ class FirefoxManagerApp(tk.Tk):
         self.resizable(True, True)
         self.minsize(720, 400)
 
+        # Configure ttk styles to add a border to the Treeview header
+        style = ttk.Style(self)
+        # The 'relief' option provides a border effect. 'raised' gives a 3D button-like look.
+        style.configure("Treeview.Heading", relief="raised")
+
         self.manual_version = tk.StringVar()
         self.selected_arch = tk.StringVar(value=ARCHITECTURES[0])
         self.language_code = tk.StringVar(value="en-US")
+        self.no_update = tk.BooleanVar(value=False)
 
         self.create_widgets()
         self.create_installed_builds_section()
@@ -60,6 +66,10 @@ class FirefoxManagerApp(tk.Tk):
         ttk.Label(input_frame, text="Language:").grid(row=0, column=4, padx=(10, 5), pady=10, sticky="e")
         ttk.Entry(input_frame, textvariable=self.language_code, width=15).grid(row=0, column=5, padx=(5, 10), pady=10)
 
+        # Add the checkbox and center it by spanning all columns in its own row
+        ttk.Checkbutton(input_frame, text="Disable Updates", variable=self.no_update).grid(row=1, column=0,
+                                                                                                   columnspan=6,
+                                                                                                   pady=(0, 10))
         input_frame.grid_columnconfigure(1, weight=1)
         input_frame.grid_columnconfigure(3, weight=1)
         input_frame.grid_columnconfigure(5, weight=1)
@@ -116,6 +126,10 @@ class FirefoxManagerApp(tk.Tk):
                 extracted = True
 
             if extracted:
+                # If "Disable Updates" is checked, modify the channel preferences
+                if self.no_update.get():
+                    self._apply_update_channel_modification(install_path, arch)
+
                 add_install_record(version, arch, lang, install_path)
                 messagebox.showinfo("Done", f"Successfully installed to:\n{install_path}")
             else:
@@ -141,7 +155,7 @@ class FirefoxManagerApp(tk.Tk):
         for col in self.COLUMNS:
             heading_text = col.replace("_", " ").capitalize()
             self.installed_tree.heading(col, text=heading_text)
-            self.installed_tree.column(col, width=150, anchor="w")
+            self.installed_tree.column(col, width=150, anchor="center")
 
         scrollbar = ttk.Scrollbar(section, orient="vertical", command=self.installed_tree.yview)
         self.installed_tree.configure(yscrollcommand=scrollbar.set)
@@ -168,8 +182,8 @@ class FirefoxManagerApp(tk.Tk):
         for row in self.installed_tree.get_children():
             self.installed_tree.delete(row)
 
-        # Repopulate from the database
-        for entry in load_db():
+        # Repopulate from the database, reversing the list so newest appears first
+        for entry in reversed(load_db()):
             install_path = get_install_folder(entry["version"], entry["arch"], entry["language"])
             status = "Installed ✔️" if os.path.isdir(install_path) else "Missing"
             self.installed_tree.insert("", "end", values=(entry["version"], entry["arch"], entry["language"], status))
@@ -189,6 +203,15 @@ class FirefoxManagerApp(tk.Tk):
             return os.path.join(install_path, "Firefox.app", "Contents", "MacOS", "firefox")
         else:  # linux
             return os.path.join(install_path, "firefox", "firefox")
+
+    def _get_channel_prefs_path(self, install_path, arch):
+        """Helper to get the platform-specific channel-prefs.js path."""
+        if "win" in arch or "linux" in arch:
+            return os.path.join(install_path, "firefox", "defaults", "pref", "channel-prefs.js")
+        elif "mac" in arch:
+            # On macOS, prefs are inside the app bundle's Resources directory
+            return os.path.join(install_path, "Firefox.app", "Contents", "Resources", "defaults", "pref", "channel-prefs.js")
+        return None
 
     def launch_selected(self):
         values = self._get_selected_build_info()
@@ -230,6 +253,52 @@ class FirefoxManagerApp(tk.Tk):
             messagebox.showerror("Not Found", "The installation folder does not exist.")
             return
         webbrowser.open(folder)
+
+    def _apply_update_channel_modification(self, install_path, arch):
+        """
+        Modifies the channel preference in channel-prefs.js for a new installation.
+        This is triggered when 'Disable Updates' is checked. It inserts '333'
+        into the channel name to effectively break the update URL.
+        e.g., "release" becomes "releas333e", "beta" becomes "bet333a".
+        """
+        prefs_file = self._get_channel_prefs_path(install_path, arch)
+
+        if not prefs_file or not os.path.exists(prefs_file):
+            print(f"Warning: Could not find channel-prefs.js for modification at {prefs_file}")
+            return
+
+        try:
+            with open(prefs_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            new_lines = []
+            modified = False
+            pattern = re.compile(r'(pref\("app\.update\.channel", ")([^"]+)("\);)')
+
+            for line in lines:
+                match = pattern.search(line)
+                if match:
+                    channel = match.group(2)
+                    # This check is a safeguard, but unlikely to be needed on a fresh install
+                    if '333' in channel:
+                        new_lines.append(line)
+                        continue
+
+                    new_channel = f"{channel[:-1]}333{channel[-1]}" if len(channel) > 1 else f"{channel}333"
+                    new_lines.append(pattern.sub(rf'\g<1>{new_channel}\g<3>', line))
+                    modified = True
+                else:
+                    new_lines.append(line)
+
+            if modified:
+                with open(prefs_file, 'w', encoding='utf-8') as f:
+                    f.writelines(new_lines)
+                print(f"Successfully modified update channel in {os.path.basename(prefs_file)}.")
+            else:
+                print(f"Warning: Could not find channel preference line to modify in {prefs_file}.")
+        except Exception as e:
+            # Using print instead of messagebox to avoid disrupting the install flow
+            print(f"An error occurred during channel modification: {e}")
 
     def remove_selected(self):
         values = self._get_selected_build_info()
