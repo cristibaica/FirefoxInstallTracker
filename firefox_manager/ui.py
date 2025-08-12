@@ -1,12 +1,14 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from downloader import download_build
-from manager import extract_zip, extract_tar_bz2, extract_tar_xz, add_install_record, get_install_folder, load_db, save_db
+from manager import (extract_zip, extract_tar_bz2, extract_tar_xz, install_dmg,
+                   add_install_record, get_install_folder, load_db, save_db)
 import os
 import subprocess
 import shutil
 import webbrowser
 import re
+import platform
 
 ARCHITECTURES = ["win64", "win32", "mac", "linux-x86_64"]
 
@@ -107,6 +109,10 @@ class FirefoxManagerApp(tk.Tk):
             elif zip_path.endswith(".tar.xz"):
                 os.makedirs(install_path, exist_ok=True)
                 extract_tar_xz(zip_path, install_path)
+                extracted = True
+            elif zip_path.endswith(".dmg") and platform.system() == "Darwin":
+                os.makedirs(install_path, exist_ok=True)
+                install_dmg(zip_path, install_path)
                 extracted = True
 
             if extracted:
