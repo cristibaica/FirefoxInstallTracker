@@ -2,6 +2,7 @@
 import os
 import json
 import zipfile
+import tarfile
 from datetime import datetime
 
 DB_FILE = "firefox_db.json"
@@ -10,6 +11,16 @@ INSTALL_ROOT = "builds"
 def extract_zip(zip_path, target_folder):
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(target_folder)
+    return target_folder
+
+def extract_tar_bz2(tar_path, target_folder):
+    with tarfile.open(tar_path, 'r:bz2') as tar_ref:
+        tar_ref.extractall(target_folder)
+    return target_folder
+
+def extract_tar_xz(tar_path, target_folder):
+    with tarfile.open(tar_path, 'r:xz') as tar_ref:
+        tar_ref.extractall(target_folder)
     return target_folder
 
 def load_db():

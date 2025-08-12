@@ -49,7 +49,16 @@ def download_build(version, arch, lang, dest_folder="builds", progress_callback=
     elif arch == "mac":
         filename = f"Firefox {clean_version}.dmg"
     elif arch.startswith("linux"):
-        filename = f"firefox-{clean_version}.tar.bz2"
+        # Newer builds use .tar.xz, older ones use .tar.bz2.
+        # We check for the .xz version first and fall back to .bz2.
+        filename_xz = f"firefox-{clean_version}.tar.xz"
+        url_xz = f"{BASE_URL}{version}/{build}/{arch}/{lang}/{filename_xz}"
+
+        res_head = requests.head(url_xz)
+        if res_head.status_code == 200:
+            filename = filename_xz
+        else:
+            filename = f"firefox-{clean_version}.tar.bz2"
     else:
         raise ValueError("Unknown architecture")
 

@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from downloader import download_build
-from manager import extract_zip, add_install_record, get_install_folder, load_db, save_db
+from manager import extract_zip, extract_tar_bz2, extract_tar_xz, add_install_record, get_install_folder, load_db, save_db
 import os
 import subprocess
 import shutil
@@ -93,10 +93,23 @@ class FirefoxManagerApp(tk.Tk):
             zip_path = download_build(version, arch, lang, dest_folder="downloads",
                                       progress_callback=self.update_progress)
 
+            install_path = get_install_folder(version, arch, lang)
+            extracted = False
+
             if zip_path.endswith(".zip"):
-                install_path = get_install_folder(version, arch, lang)
                 os.makedirs(install_path, exist_ok=True)
                 extract_zip(zip_path, install_path)
+                extracted = True
+            elif zip_path.endswith(".tar.bz2"):
+                os.makedirs(install_path, exist_ok=True)
+                extract_tar_bz2(zip_path, install_path)
+                extracted = True
+            elif zip_path.endswith(".tar.xz"):
+                os.makedirs(install_path, exist_ok=True)
+                extract_tar_xz(zip_path, install_path)
+                extracted = True
+
+            if extracted:
                 add_install_record(version, arch, lang, install_path)
                 messagebox.showinfo("Done", f"Successfully installed to:\n{install_path}")
             else:
